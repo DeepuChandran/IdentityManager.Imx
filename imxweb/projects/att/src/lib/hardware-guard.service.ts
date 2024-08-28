@@ -25,24 +25,28 @@
  */
 
 import { Injectable } from '@angular/core';
-
-import { PortalServicecategories } from 'imx-api-qer';
-import { CollectionLoadParameters, EntitySchema, ExtendedTypedEntityCollection } from 'imx-qbm-dbts';
-
-import { QerApiService } from '../../qer-api-client.service';
-import { NewRequestOrchestrationService } from '../new-request-orchestration.service';
+import { CanActivate, Router } from '@angular/router';
+import { SystemInfoService } from 'qbm';
+import { ProjectConfigurationService } from 'qer';
 
 @Injectable({
   providedIn: 'root',
 })
-export class NewRequestCategoryApiService {
-  constructor(private readonly orchestration: NewRequestOrchestrationService, private readonly qerApi: QerApiService) {}
+export class HardwareGuardService implements CanActivate {
+  constructor(
+    private readonly projectConfig: ProjectConfigurationService,
+    private readonly systemInfo: SystemInfoService,
+    private readonly router: Router
+  ) {}
 
-  public get schema(): EntitySchema {
-    return PortalServicecategories.GetEntitySchema();
-  }
+  public async canActivate(): Promise<boolean> {
+    const preprops = (await this.systemInfo.get()).PreProps;
+    const hardware = (await this.projectConfig.getConfig()).DeviceConfig.VI_Hardware_Enabled;
+    if (hardware && preprops.includes('MAC')) {
+      return true;
+    }
 
-  public async get(parameters: CollectionLoadParameters = {}): Promise<ExtendedTypedEntityCollection<any, unknown>> {
-    return await this.qerApi.typedClient.PortalShopCategories.Get(parameters, { signal: this.orchestration.serviceCategoryAbortController.signal });
+    this.router.navigate(['']);
+    return false;
   }
 }
