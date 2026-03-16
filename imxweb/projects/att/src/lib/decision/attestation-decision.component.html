@@ -1,7 +1,7 @@
-<h1 class="mat-headline">
+<h2 class="mat-headline">
   <span>{{ '#LDS#Heading Pending Attestations' | translate }}</span>
   <imx-help-contextual></imx-help-contextual>
-</h1>
+</h2>
 
 <div *ngIf="hasInquiries" class="imx-cases-content">
   <mat-tab-group [(selectedIndex)]="tabIndex">
@@ -27,10 +27,10 @@
     <ng-container>
       <div class="toggle-wrapper" *ngIf="dstSettings">
         <mat-slide-toggle
-          *ngIf="isUserEscalationApprover && ! hideToolbar"
+          *ngIf="isUserEscalationApprover && !hideToolbar"
           class="escalation-approver-toggle"
           color="primary"
-          [(ngModel)]="viewEscalation"
+          [checked]="attestationCases.isChiefApproval"
           (change)="switchEscalation()"
           data-imx-identifier="attestation-decision-escalation-slider"
           [matTooltip]="
@@ -42,7 +42,7 @@
         </mat-slide-toggle>
       </div>
       <imx-data-source-toolbar
-        [ngClass]="{'hidden': hideToolbar}"
+        [ngClass]="{ hidden: hideToolbar }"
         #dst
         [options]="['search', 'sort', 'filter', 'groupBy', 'settings']"
         [busyService]="busyService"
@@ -104,11 +104,11 @@
           <imx-data-table-generic-column columnName="decision" data-imx-identifier="attestations-table-column-decision">
             <ng-template let-item>
               <div class="imx-decision">
-                <button mat-stroked-button color="warn" (click)="openLossDialog('deny', [item])" data-imx-identifier="attestations-table-deny-button">
+                <button mat-stroked-button color="warn" (click)="openLossDialog('deny', [item], viewEscalation)" data-imx-identifier="attestations-table-deny-button">
                   <eui-icon icon="ignore"></eui-icon>
                   <span translate>#LDS#Deny</span>
                 </button>
-                <button mat-stroked-button color="primary" (click)="attestationAction.checkForViolations([item])" data-imx-identifier="attestations-table-approve-button">
+                <button mat-stroked-button color="primary" (click)="attestationAction.checkForViolations([item], viewEscalation)" data-imx-identifier="attestations-table-approve-button">
                   <eui-icon icon="check"></eui-icon>
                   <span translate>#LDS#Approve</span>
                 </button>
@@ -164,7 +164,7 @@
       data-imx-identifier="attestations-deny-selected-button"
       mat-raised-button
       color="warn"
-      (click)="openLossDialog('deny', selectedCases)"
+      (click)="openLossDialog('deny', selectedCases, viewEscalation)"
       [disabled]="!selectedCases.length"
     >
       <eui-icon icon="ignore"></eui-icon>
@@ -174,7 +174,7 @@
       data-imx-identifier="attestations-approve-selected-button"
       mat-raised-button
       color="primary"
-      (click)="attestationAction.checkForViolations(selectedCases)"
+      (click)="attestationAction.checkForViolations(selectedCases, viewEscalation)"
       [disabled]="!selectedCases.length"
     >
       <eui-icon icon="check"></eui-icon>
@@ -223,7 +223,7 @@
       *ngIf="canDenyApproval"
       data-imx-identifier="attestations-actions-menu-button-deny-approvals"
       title="{{ '#LDS#Rejects the approval for the selected attestation cases and sends them back to the original attestors' | translate }}"
-      (click)="openLossDialog('denyDecisions', selectedCases)"
+      (click)="openLossDialog('denyDecisions', selectedCases, viewEscalation)"
     >
       {{ '#LDS#Reject approval' | translate }}
     </button>

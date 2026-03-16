@@ -24,29 +24,39 @@
  *
  */
 
-import { Injectable, Type } from '@angular/core';
 import { OverlayRef } from '@angular/cdk/overlay';
+import { Injectable, Type } from '@angular/core';
 import { EuiLoadingService, EuiSidesheetService } from '@elemental-ui/core';
 import { TranslateService } from '@ngx-translate/core';
 import { Subject } from 'rxjs';
 
 import { PortalAttestationApprove } from 'imx-api-att';
-import { CompareOperator, EntityData, FilterType, ValType } from 'imx-qbm-dbts';
-import { SnackBarService, EntityService, ColumnDependentReference, BaseCdr, ExtService, BaseReadonlyCdr, CdrFactoryService } from 'qbm';
+import { CompareOperator, EntityData, FilterType, TypedEntity, ValType } from 'imx-qbm-dbts';
+import {
+  AuthenticationService,
+  BaseCdr,
+  BaseReadonlyCdr,
+  CdrFactoryService,
+  ColumnDependentReference,
+  EntityService,
+  ExtService,
+  SnackBarService,
+} from 'qbm';
 import { JustificationService, JustificationType, PersonService, UserModelService } from 'qer';
-import { AttestationCasesService } from '../decision/attestation-cases.service';
-import { AttestationActionComponent } from './attestation-action.component';
-import { AttestationCase } from '../decision/attestation-case';
-import { AttestationWorkflowService } from './attestation-workflow.service';
-import { AttestationCaseAction } from './attestation-case-action.interface';
 import { ApiService } from '../api.service';
+import { AttestationCase } from '../decision/attestation-case';
+import { AttestationCasesService } from '../decision/attestation-cases.service';
 import { AttestationInquiry } from '../decision/attestation-inquiries/attestation-inquiry.model';
+import { AttestationActionComponent } from './attestation-action.component';
+import { AttestationCaseAction } from './attestation-case-action.interface';
+import { AttestationWorkflowService } from './attestation-workflow.service';
 
 @Injectable({
   providedIn: 'root',
 })
 export class AttestationActionService {
   public readonly applied = new Subject();
+  private uidUser: string;
 
   constructor(
     private readonly apiService: ApiService,
@@ -58,10 +68,13 @@ export class AttestationActionService {
     private readonly snackBar: SnackBarService,
     private readonly entityService: EntityService,
     private readonly person: PersonService,
-    private readonly workflow: AttestationWorkflowService,    
+    private readonly workflow: AttestationWorkflowService,
     private readonly userService: UserModelService,
-    private readonly extService: ExtService
-  ) {}
+    private readonly extService: ExtService,
+    authentication: AuthenticationService
+  ) {
+    authentication.onSessionResponse.subscribe((state) => (this.uidUser = state.UserUid ?? ''));
+  }
 
   public async directDecision(attestationCases: AttestationCase[], userUid: string): Promise<void> {
     const actionParameters = {
@@ -193,7 +206,7 @@ export class AttestationActionService {
     });
   }
 
-  public async checkForViolations(attestationCases: AttestationCase[]): Promise<void> {
+  public async checkForViolations(attestationCases: AttestationCase[], isEscalation: boolean): Promise<void> {
     let isApprovable = true;
     for (const attestationCase of attestationCases) {
       const isAllAllowable = attestationCase.data.ComplianceViolations.every((item) => item.IsExceptionAllowed);
@@ -205,7 +218,7 @@ export class AttestationActionService {
     }
 
     if (isApprovable) {
-      return this.approve(attestationCases);
+      return this.approve(attestationCases, isEscalation);
     } else {
       let message: string;
       if (attestationCases.length === 1) {
@@ -248,7 +261,7 @@ export class AttestationActionService {
     return response;
   }
 
-  public async approve(attestationCases: AttestationCaseAction[]): Promise<void> {
+  public async approve(attestationCases: AttestationCaseAction[], isEscalation: boolean): Promise<void> {
     // Check is any case has an MFA property, open sidesheet if so
     const uidCases: string[] = [];
     const anyMFACases = attestationCases
@@ -264,12 +277,12 @@ export class AttestationActionService {
         return;
       }
     }
-    return this.makeDecisions(attestationCases, true);
+    return this.makeDecisions(attestationCases, true, isEscalation);
   }
 
-  public async deny(attestationCases: AttestationCaseAction[]): Promise<void> {
+  public async deny(attestationCases: AttestationCaseAction[], isEscalation: boolean): Promise<void> {
     // TODO later: preview effects of auto-remove before making negative decision (ATT_AttestationCase_PreviewAutoRemove)
-    return this.makeDecisions(attestationCases, false);
+    return this.makeDecisions(attestationCases, false, isEscalation);
   }
 
   public async answerQuestion(attestationCase: AttestationCase): Promise<void> {
@@ -384,7 +397,7 @@ export class AttestationActionService {
         ColumnName: 'ReasonHead',
         Type: ValType.Text,
         IsMultiLine: true,
-        MinLen:metadata.mandatory ? 1 : 0
+        MinLen: metadata.mandatory ? 1 : 0,
       }),
       metadata.display || '#LDS#Reason for your decision'
     );
@@ -438,7 +451,7 @@ export class AttestationActionService {
     return new BaseCdr(column, '#LDS#Recipient of the inquiry');
   }
 
-  private async makeDecisions(attestationCases: AttestationCaseAction[], approve: boolean): Promise<void> {
+  private async makeDecisions(attestationCases: AttestationCaseAction[], approve: boolean, isEscalation: boolean): Promise<void> {
     let justification: ColumnDependentReference;
 
     let busyIndicator: OverlayRef;
@@ -452,7 +465,7 @@ export class AttestationActionService {
 
     try {
       justification = await this.justification.createCdr(
-        approve ? JustificationType.approveAttestation : JustificationType.denyAttestation,
+        approve ? JustificationType.approveAttestation : JustificationType.denyAttestation
       );
     } finally {
       setTimeout(() => this.busyService.hide(busyIndicator));
@@ -467,7 +480,7 @@ export class AttestationActionService {
 
     return this.editAction({
       title: approve ? '#LDS#Heading Approve Attestation Case' : '#LDS#Heading Deny Attestation Case',
-      data: { attestationCases, actionParameters, approve, maxReasonType },
+      data: { attestationCases, actionParameters, approve, maxReasonType, isEscalation },
       message: approve
         ? '#LDS#{0} attestation cases have been successfully approved.'
         : '#LDS#{0} attestation cases have been successfully denied.',
@@ -479,6 +492,7 @@ export class AttestationActionService {
           Reason: actionParameters.reason.column.GetValue(),
           UidJustification: actionParameters.justification?.column?.GetValue(),
           Decision: approve,
+          SubLevel: this.getSubLevel(attestationCase, attestationCase.data),
         });
       },
     });
@@ -543,5 +557,28 @@ export class AttestationActionService {
       ),
       display || '#LDS#Identity'
     );
+  }
+
+  private getSubLevel(entity: TypedEntity, extended: any): number {
+    //get all workflowsteps for the current decision level
+    const steps = extended.WorkflowSteps?.Entities?.filter(
+      (elem) =>
+        elem?.Columns?.UID_QERWorkingMethod.Value === entity.GetEntity().GetColumn('UID_QERWorkingMethod').GetValue() &&
+        elem.Columns.LevelNumber.Value === entity.GetEntity().GetColumn('DecisionLevel').GetValue()
+    );
+    // get the Workflow data that
+    // - belong to one of the current workflow steps
+    // - can be decided by the user
+    // - are not decided yet
+    const data = steps.flatMap((step) =>
+      extended.WorkflowData.Entities.filter(
+        (elem) =>
+          elem?.Columns?.UID_QERWorkingStep.Value === step?.Columns?.UID_QERWorkingStep.Value &&
+          elem?.Columns?.UID_PersonHead.Value === this.uidUser &&
+          elem?.Columns?.Decision?.Value === ''
+      )
+    );
+    const sorted = data.sort((x, y) => x.Columns?.SubLevelNumber?.Value - y.Columns?.SubLevelNumber?.Value); // Sort by SubLevelNumber, use smallest
+    return sorted[0]?.Columns?.SubLevelNumber?.Value ?? 0; //return the sublevel number
   }
 }

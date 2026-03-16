@@ -37,6 +37,7 @@ import { EditMultiValueComponent } from './edit-multi-value/edit-multi-value.com
 import { EditMultilineComponent } from './edit-multiline/edit-multiline.component';
 import { EditImageComponent } from './edit-image/edit-image.component';
 import { EditDateComponent } from './edit-date/edit-date.component';
+import { EditBitmaskComponent } from './edit-bitmask/edit-bitmask.component';
 import { EditRiskIndexComponent } from './edit-risk-index/edit-risk-index.component';
 import { DateRangeComponent } from './date-range/date-range.component';
 import { EditUrlComponent } from './edit-url/edit-url.component';
@@ -69,11 +70,15 @@ export class DefaultCdrEditorProvider implements CdrEditorProvider {
     const limitedValues = this.isLimitedValues(meta);
     const schemaKey = meta.GetSchemaKey();
     const isRiskIndexColumn =
-      ['RiskIndex', 'RiskLevel'].includes(schemaKey.substring(schemaKey.lastIndexOf('.') + 1)) || schemaKey == 'QERRiskIndex.Weight';
+      ['RiskIndex', 'RiskRange', 'RiskLevel'].includes(schemaKey.substring(schemaKey.lastIndexOf('.') + 1)) || schemaKey == 'QERRiskIndex.Weight';
     const type = meta.GetType();
 
     if (type === ValType.Binary) {
       return this.createBound(EditImageComponent, parent, cdref);
+    }
+
+    if (type === ValType.Int && meta.GetBitMaskCaptions()?.length > 0) {
+      return this.createBound(EditBitmaskComponent, parent, cdref);
     }
 
     if (!multiLine && !multiValue && !range && !limitedValues && !isRiskIndexColumn) {
@@ -122,7 +127,7 @@ export class DefaultCdrEditorProvider implements CdrEditorProvider {
   private createBound<T extends CdrEditor>(
     editor: Type<T>,
     parent: ViewContainerRef,
-    cdref: ColumnDependentReference
+    cdref: ColumnDependentReference,
   ): ComponentRef<CdrEditor> {
     const result = parent.createComponent(editor);
     result.instance.bind(cdref);

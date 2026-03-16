@@ -25,14 +25,15 @@
  */
 
 import { Component, Inject, OnDestroy, OnInit } from '@angular/core';
-import { EuiDownloadOptions, EuiLoadingService, EuiSidesheetRef, EuiSidesheetService, EUI_SIDESHEET_DATA } from '@elemental-ui/core';
-import { Subscription } from 'rxjs';
-import { MatTabChangeEvent } from '@angular/material/tabs';
 import { MatDialog } from '@angular/material/dialog';
+import { MatTabChangeEvent } from '@angular/material/tabs';
+import { EUI_SIDESHEET_DATA, EuiDownloadOptions, EuiLoadingService, EuiSidesheetRef, EuiSidesheetService } from '@elemental-ui/core';
 import { TranslateService } from '@ngx-translate/core';
+import { Subscription } from 'rxjs';
 
-import { DbObjectKey } from 'imx-qbm-dbts';
 import { AttestationRelatedObject, PortalAttestationCaseHistory } from 'imx-api-att';
+import { DbObjectKey } from 'imx-qbm-dbts';
+import _ from 'lodash';
 import {
   AuthenticationService,
   BaseReadonlyCdr,
@@ -40,6 +41,7 @@ import {
   ColumnDependentReference,
   MetadataService,
   SnackBarService,
+  SqlWizardApiService,
   SystemInfoService,
 } from 'qbm';
 import {
@@ -50,9 +52,9 @@ import {
   TermsOfUseViewerComponent,
 } from 'qer';
 import { AttestationActionService } from '../attestation-action/attestation-action.service';
+import { Approvers } from './approvers.interface';
 import { AttestationCase } from './attestation-case';
 import { AttestationCasesService } from './attestation-cases.service';
-import { Approvers } from './approvers.interface';
 import { LossPreview } from './loss-preview.interface';
 import { MitigatingControlsComponent } from './mitigating-controls/mitigating-controls.component';
 
@@ -83,6 +85,7 @@ export class AttestationCaseComponent implements OnDestroy, OnInit {
   public selectedHyperviewUID: string;
   public selectedOption: AttestationRelatedObject;
   public relatedOptions: AttestationRelatedObject[] = [];
+  public isHistoryAvailable = false;
 
   private readonly subscriptions$: Subscription[] = [];
 
@@ -109,6 +112,7 @@ export class AttestationCaseComponent implements OnDestroy, OnInit {
     private readonly systemInfoService: SystemInfoService,
     private readonly logger: ClassloggerService,
     private readonly metadataService: MetadataService,
+    private readonly sqlService: SqlWizardApiService,
     authentication: AuthenticationService,
   ) {
     this.case = data.case;
@@ -142,7 +146,9 @@ export class AttestationCaseComponent implements OnDestroy, OnInit {
       this.policyTabTitle = await this.translate.get('#LDS#Heading Policy Violations').toPromise();
       const info = await this.systemInfoService.get();
       this.canAnalyzeRisk = info.PreProps.includes('RISKINDEX') && this.case.RiskIndex.value > 0;
-    } finally {
+      const filterProperties = await this.sqlService.getFilterProperties('AttestationCase');
+      this.isHistoryAvailable = ['UID_AttestationPolicy','ObjectKeyBase','UID_AttestationCase'].every((col) => filterProperties.findIndex((prop) => prop.PropertyId === col) !== -1); 
+     }finally {
       this.busyService.hide(overlay);
     }
   }
@@ -254,5 +260,21 @@ export class AttestationCaseComponent implements OnDestroy, OnInit {
 
   public onHyperviewOptionSelected(): void {
     this.setHyperviewObject(this.selectedOption);
+  }
+
+  public onAttestationApprove() {
+    this.attestationAction.checkForViolations([_.cloneDeep(this.case)], this.data.isUserEscalationApprover);
+  }
+
+  public canWithdrawInquiry(): boolean {
+    return this.case.IsReserved.value && this.case.hasAskedLastQuestion(this.userUid) && this.case.hasOpenQuestions;
+  }
+
+  public canResetReservation(): boolean {
+    if (this.canWithdrawInquiry()) return false;
+    return (
+      this.case.IsReserved.value &&
+      ((this.case.hasAskedLastQuestion(this.userUid) && !this.case.hasOpenQuestions) || this.isUserEscalationApprover)
+    );
   }
 }

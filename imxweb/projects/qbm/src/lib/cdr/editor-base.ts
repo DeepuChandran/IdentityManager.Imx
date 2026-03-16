@@ -23,16 +23,16 @@
  * THIS SOFTWARE OR ITS DERIVATIVES.
  *
  */
-import { OnDestroy, Component, EventEmitter, ErrorHandler } from '@angular/core';
+import { Component, ErrorHandler, EventEmitter, OnDestroy } from '@angular/core';
 import { AbstractControl, ValidatorFn, Validators } from '@angular/forms';
 import { Subject, Subscription } from 'rxjs';
 
+import { ValType } from 'imx-qbm-dbts';
+import { ServerError } from '../base/server-error';
+import { ClassloggerService } from '../classlogger/classlogger.service';
 import { CdrEditor, ValueHasChangedEventArg } from './cdr-editor.interface';
 import { ColumnDependentReference } from './column-dependent-reference.interface';
-import { ClassloggerService } from '../classlogger/classlogger.service';
 import { EntityColumnContainer } from './entity-column-container';
-import { ServerError } from '../base/server-error';
-import { ValType } from 'imx-qbm-dbts';
 
 /**
  * A base class for CDR editors, that handles simple dataTypes like string, boolean or integer.
@@ -68,6 +68,7 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
    * used for the template to signal, that the component is loading content from the server.
    */
   public isBusy = false;
+  public readonly pendingChanged = new EventEmitter<boolean>();
 
   /**
    * @ignore
@@ -120,7 +121,7 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
       if (cdref.minlengthSubject) {
         this.subscribers.push(
           cdref.minlengthSubject.subscribe((elem) => {
-            this.setControlValue();
+            this.setControlValue(true);
           })
         );
       }
@@ -128,7 +129,7 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
       // bind to entity change event
       this.subscribers.push(
         this.columnContainer.subscribe(() => {
-          if (this.isWriting) {
+          if (this.isWriting || (!!this.columnContainer.metaData && !this.columnContainer.metaData?.CanSee())) {
             return;
           }
 
@@ -150,14 +151,17 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
           setTimeout(() => {
             try {
               if (!this.control.hasError('generalError') && this.control.value !== this.columnContainer.value) {
-                 this.logger.trace(
-                   this,
-                   `Control (${this.columnContainer.name}) set to new value:`,
-                   this.columnContainer.value,
-                   this.control.value
-                 );
+                this.logger.trace(
+                  this,
+                  `Control (${this.columnContainer.name}) set to new value:`,
+                  this.columnContainer.value,
+                  this.control.value
+                );
                 this.setControlValue();
-                this.control.updateValueAndValidity({ onlySelf: true, emitEvent: false });
+                this.control.updateValueAndValidity({ onlySelf: false, emitEvent: false });
+              } else {
+                this.setControlValue(true);
+                this.control.updateValueAndValidity({ onlySelf: false, emitEvent: false });
               }
             } finally {
             }
@@ -175,8 +179,12 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
   /**
    * Updates the value of the form control as well as its validators.
    */
-  private setControlValue(): void {
-    this.control.setValue(this.columnContainer.value, { emitEvent: false });
+  private setControlValue(validationOnly: boolean = false): void {
+    // Update the control value only if not in validationOnly mode
+    if (!validationOnly) {
+      this.control.setValue(this.columnContainer.value, { emitEvent: false });
+    }
+    // Update the validators
     if (
       this.columnContainer.isValueRequired &&
       this.columnContainer.canEdit &&
@@ -206,6 +214,7 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
 
     this.isBusy = true;
     this.isWriting = true;
+    this.pendingChanged.emit(true);
     try {
       this.logger.debug(this, 'writeValue - PutValue...');
       await this.columnContainer.updateValue(value);
@@ -213,20 +222,21 @@ export abstract class EditorBase<T = any> implements CdrEditor, OnDestroy {
     } catch (e) {
       this.lastError = e;
       this.logger.error(this, e);
-      this.control.updateValueAndValidity({ emitEvent: true });
     } finally {
       this.isBusy = false;
       this.isWriting = false;
-      if (!this.control.hasError('generalError') && this.control.value !== this.columnContainer.value) {
+      this.pendingChanged.emit(false);
+      if (!this.lastError && this.control.value !== this.columnContainer.value) {
         this.control.setValue(this.columnContainer.value, { emitEvent: false });
         this.logger.debug(this, 'form control value is set to', this.control.value);
       }
+      this.control.updateValueAndValidity({ emitEvent: false });
     }
 
     this.valueHasChanged.emit({ value, forceEmit: true });
   }
 
-  private static hasServerError(base: any): ValidatorFn {
+  public static hasServerError(base: any): ValidatorFn {
     return (_: AbstractControl): { [key: string]: boolean } | null => {
       return !base.lastError ? null : { generalError: true };
     };

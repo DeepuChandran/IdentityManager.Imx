@@ -351,10 +351,13 @@ export class NewRequestProductComponent implements OnInit, OnDestroy {
           firstIteration = false;
         } else {
           this.dynamicDataSource.setup(true);
-          this.getProductData(true);
+          await this.getProductData(true);
         }
       })
     );
+        
+    // pre-assign the recipient by URL parameter
+    this.orchestration.setRecipient(this.route.snapshot.queryParams['UID_Person'])
   }
 
   public ngOnDestroy(): void {
@@ -373,14 +376,14 @@ export class NewRequestProductComponent implements OnInit, OnDestroy {
       this.orchestration.selectedCategory = node?.entity;
       // this.orchestration.includeChildCategories = this.includeChildCategories;
       this.accProductGroup = category.GetKeys()[0];
-      this.getProductData();
+      await this.getProductData();
     } else {
       // This is the root node and it has no entity
       this.orchestration.selectedCategory = null;
       this.includeChildCategories = false;
       // this.orchestration.includeChildCategories = this.includeChildCategories;
       this.accProductGroup = null;
-      this.getProductData();
+      await this.getProductData();
     }
 
     this.orchestration.includeChildCategories = this.includeChildCategories;
@@ -439,7 +442,7 @@ export class NewRequestProductComponent implements OnInit, OnDestroy {
 
   private getCollectionLoadParameter(): CollectionLoadParameters | ServiceItemParameters {
     let parameters: CollectionLoadParameters | ServiceItemParameters = {
-      ...this.productNavigationState,
+      ...this.dstSettings ? this.dstSettings.navigationState : this.productNavigationState,
       UID_Person: this.orchestration.recipients
         ? MultiValue.FromString(this.orchestration.recipients.value).GetValues().join(',')
         : undefined,
